@@ -1,0 +1,167 @@
+﻿<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<TrustFrameworkPolicy xmlns="http://schemas.microsoft.com/online/cpim/schemas/2013/06" PolicySchemaVersion="0.3.0.0"
+                      TenantId="yourtenant.onmicrosoft.com"
+                      PolicyId="B2C_1A_Demo_SignUp_SignIn_TOTP_DEV"
+                      PublicPolicyUri="http://yourtenant.onmicrosoft.com/B2C_1A_Demo_SignUp_SignIn_TOTP">
+
+    <BasePolicy>
+        <TenantId>yourtenant.onmicrosoft.com</TenantId>
+        <PolicyId>B2C_1A_Demo_TrustFrameworkExtensions_TOTP</PolicyId>
+    </BasePolicy>
+
+    <ClaimsProviders>
+        <ClaimsProvider>
+            <DisplayName>Azure Active Directory</DisplayName>
+            <TechnicalProfiles>
+                <TechnicalProfile Id="AadSspr-VerifyCode">
+                    <ValidationTechnicalProfiles>
+                        <ValidationTechnicalProfile ReferenceId="VerifyEmailAPI"/>
+                    </ValidationTechnicalProfiles>
+                </TechnicalProfile>
+            </TechnicalProfiles>
+        </ClaimsProvider>
+        <ClaimsProvider>
+            <DisplayName>External Claims Source</DisplayName>
+            <TechnicalProfiles>
+                <TechnicalProfile Id="VerifyEmailAPI">
+                    <Metadata>
+                        <Item Key="ServiceUrl">{verify_api_url}</Item>
+                    </Metadata>
+                </TechnicalProfile>
+                <TechnicalProfile Id="GetUserClaimsFromAPI">
+                    <DisplayName>Get claims for user from external system.</DisplayName>
+                    <Protocol Name="Proprietary"
+                              Handler="Web.TPEngine.Providers.RestfulProvider, Web.TPEngine, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null"/>
+                    <Metadata>
+                        <Item Key="ServiceUrl">{roles_api_url}</Item>
+                        <Item Key="SendClaimsIn">Body</Item>
+                        <Item Key="AuthenticationType">None</Item>
+                        <Item Key="AllowInsecureAuthInProduction">true</Item>
+                    </Metadata>
+                    <InputClaims>
+                        <!-- Claims sent to your REST API -->
+                        <InputClaim ClaimTypeReferenceId="objectId"/>
+                        <InputClaim ClaimTypeReferenceId="readOnlyEmail" PartnerClaimType="email"/>
+                    </InputClaims>
+                    <OutputClaims>
+                        <!-- Claims parsed from your REST API -->
+                        <OutputClaim ClaimTypeReferenceId="extension_UserRoles" PartnerClaimType="extension_UserRoles"/>
+                        <OutputClaim ClaimTypeReferenceId="extension_UserType" PartnerClaimType="extension_userType"/>
+                        <OutputClaim ClaimTypeReferenceId="extension_UserId" PartnerClaimType="extension_userId"/>
+                        <OutputClaim ClaimTypeReferenceId="extension_UserVenues" PartnerClaimType="extension_userVenues"/>
+                        <OutputClaim ClaimTypeReferenceId="userId"/>
+                    </OutputClaims>
+                    <UseTechnicalProfileForSessionManagement ReferenceId="SM-Noop"/>
+                </TechnicalProfile>
+            </TechnicalProfiles>
+        </ClaimsProvider>
+    </ClaimsProviders>
+    <UserJourneys>
+        <UserJourney Id="SignUpOrSignInTOTP">
+            <OrchestrationSteps>
+                <OrchestrationStep Order="1" Type="CombinedSignInAndSignUp"
+                                   ContentDefinitionReferenceId="api.signuporsignin">
+                    <ClaimsProviderSelections>
+                        <ClaimsProviderSelection ValidationClaimsExchangeId="LocalAccountSigninEmailExchange"/>
+                    </ClaimsProviderSelections>
+                    <ClaimsExchanges>
+                        <ClaimsExchange Id="LocalAccountSigninEmailExchange"
+                                        TechnicalProfileReferenceId="SelfAsserted-LocalAccountSignin-Email"/>
+                    </ClaimsExchanges>
+                </OrchestrationStep>
+
+                <OrchestrationStep Order="2" Type="ClaimsExchange">
+                  <Preconditions>
+                    <Precondition Type="ClaimsExist" ExecuteActionsIf="true">
+                      <Value>objectId</Value>
+                      <Action>SkipThisOrchestrationStep</Action>
+                    </Precondition>
+                  </Preconditions>
+                  <ClaimsExchanges>
+                    <ClaimsExchange Id="SignUpWithLogonEmailExchange" TechnicalProfileReferenceId="SignUpAndVerifyEmailExists" />
+                  </ClaimsExchanges>
+                </OrchestrationStep>
+                <OrchestrationStep Order="3" Type="ClaimsExchange">
+                    <Preconditions>
+                        <Precondition Type="ClaimsExist" ExecuteActionsIf="false">
+                            <Value>emailVerificationAction</Value>
+                            <Action>SkipThisOrchestrationStep</Action>
+                        </Precondition>
+                        <Precondition Type="ClaimEquals" ExecuteActionsIf="false">
+                            <Value>emailVerificationAction</Value>
+                            <Value>ShowBlockPage</Value>
+                            <Action>SkipThisOrchestrationStep</Action>
+                        </Precondition>
+                    </Preconditions>
+                    <ClaimsExchanges>
+                        <ClaimsExchange Id="SelfAssertedRegError" TechnicalProfileReferenceId="SelfAsserted-RegError"/>
+                    </ClaimsExchanges>
+                </OrchestrationStep>
+                <OrchestrationStep Order="4" Type="ClaimsExchange">
+                    <ClaimsExchanges>
+                        <ClaimsExchange Id="AADUserReadWithObjectId"
+                                        TechnicalProfileReferenceId="AAD-UserReadUsingObjectId"/>
+                    </ClaimsExchanges>
+                </OrchestrationStep>
+
+                <!-- Call the TOTP enrollment ub journey. If user already enrolled the sub journey will not ask the user to enroll -->
+                <OrchestrationStep Order="5" Type="InvokeSubJourney">
+                    <Preconditions>
+                        <Precondition Type="ClaimEquals" ExecuteActionsIf="true">
+                            <Value>signInName</Value>
+                            <Value>test@email.com</Value>
+                            <Action>SkipThisOrchestrationStep</Action>
+                        </Precondition>
+                    </Preconditions>
+                    <JourneyList>
+                        <Candidate SubJourneyReferenceId="TotpFactor-Input"/>
+                    </JourneyList>
+                </OrchestrationStep>
+
+                <!-- Call the TOTP validation sub journey-->
+                <OrchestrationStep Order="6" Type="InvokeSubJourney">
+                    <Preconditions>
+                        <Precondition Type="ClaimEquals" ExecuteActionsIf="true">
+                            <Value>signInName</Value>
+                            <Value>test@email.com</Value>
+                            <Action>SkipThisOrchestrationStep</Action>
+                        </Precondition>
+                    </Preconditions>
+                    <JourneyList>
+                        <Candidate SubJourneyReferenceId="TotpFactor-Verify"/>
+                    </JourneyList>
+                </OrchestrationStep>
+                <OrchestrationStep Order="7" Type="ClaimsExchange">
+                    <ClaimsExchanges>
+                        <ClaimsExchange Id="RESTGetUserClaims" TechnicalProfileReferenceId="GetUserClaimsFromAPI"/>
+                    </ClaimsExchanges>
+                </OrchestrationStep>
+
+                <OrchestrationStep Order="8" Type="SendClaims" CpimIssuerTechnicalProfileReferenceId="JwtIssuer"/>
+
+            </OrchestrationSteps>
+        </UserJourney>
+    </UserJourneys>
+
+    <RelyingParty>
+        <DefaultUserJourney ReferenceId="SignUpOrSignInTOTP"/>
+        <TechnicalProfile Id="PolicyProfile">
+            <DisplayName>PolicyProfile</DisplayName>
+            <Protocol Name="OpenIdConnect"/>
+            <OutputClaims>
+                <OutputClaim ClaimTypeReferenceId="displayName"/>
+                <OutputClaim ClaimTypeReferenceId="givenName"/>
+                <OutputClaim ClaimTypeReferenceId="surname"/>
+                <OutputClaim ClaimTypeReferenceId="email"/>
+                <OutputClaim ClaimTypeReferenceId="extension_UserRoles"/>
+                <OutputClaim ClaimTypeReferenceId="extension_UserType"/>
+                <OutputClaim ClaimTypeReferenceId="extension_UserId"/>
+                <OutputClaim ClaimTypeReferenceId="extension_UserVenues"/>
+                <OutputClaim ClaimTypeReferenceId="objectId" PartnerClaimType="sub"/>
+                <OutputClaim ClaimTypeReferenceId="tenantId" AlwaysUseDefaultValue="true"
+                             DefaultValue="{Policy:TenantObjectId}"/>
+            </OutputClaims>
+            <SubjectNamingInfo ClaimType="sub"/>
+        </TechnicalProfile>
+    </RelyingParty>
+</TrustFrameworkPolicy>
